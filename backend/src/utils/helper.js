@@ -1,9 +1,10 @@
 // utils/helper.js
-// Các hàm dùng chung trong toàn bộ backend: format ngày tháng, tạo token...
+// Cac ham dung chung trong toan bo backend: format ngay thang, tao token...
 
 const jwt = require('jsonwebtoken');
+const { env } = require('../config/env.config');
 
-// Format ngày tháng kiểu dd/mm/yyyy
+// Format ngay thang kieu dd/mm/yyyy
 const formatDate = (date) => {
   const d = new Date(date);
   const day = String(d.getDate()).padStart(2, '0');
@@ -12,9 +13,9 @@ const formatDate = (date) => {
   return `${day}/${month}/${year}`;
 };
 
-// Tạo JWT token
+// Tao JWT token cho phien dang nhap (UC002 - buoc 7)
 const generateToken = (payload) => {
-  return jwt.sign(payload, process.env.JWT_SECRET, { expiresIn: '1d' });
+  return jwt.sign(payload, env.JWT_SECRET, { expiresIn: env.JWT_EXPIRES_IN });
 };
 
 module.exports = { formatDate, generateToken };
