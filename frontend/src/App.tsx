@@ -1,16 +1,12 @@
-
-// App.tsx
-// File gốc của React. Giữ trạng thái đăng nhập (user) và điều hướng giữa các trang.
-
 import React, { useState, useEffect } from 'react';
 import Home from './pages/home';
+import DoctorsPage from './pages/doctors'; // Import trang Bác sĩ mới
 import type { AuthUser } from './pages/home';
 import Login from './pages/login';
 import Register from './pages/register';
 import Logout from './pages/logout';
 import api from './services/api';
 
-// Chỉ coi là đã đăng nhập khi có cả token lẫn userInfo
 const getStoredUser = (): AuthUser | null => {
   if (!localStorage.getItem('token')) return null;
   try {
@@ -21,8 +17,6 @@ const getStoredUser = (): AuthUser | null => {
   }
 };
 
-// Mỗi lần mở web mới (tab mới / chạy lại) luôn bắt đầu ở trạng thái khách:
-// xóa phiên cũ còn sót trong localStorage. Bấm F5 trong cùng tab thì vẫn giữ đăng nhập.
 const getInitialUser = (): AuthUser | null => {
   if (!sessionStorage.getItem('appStarted')) {
     sessionStorage.setItem('appStarted', '1');
@@ -43,29 +37,26 @@ export default function App() {
     return () => window.removeEventListener('popstate', handlePopState);
   }, []);
 
-  // Mở web: nếu có token thì hỏi backend GET /api/auth/me xem còn hợp lệ không
   useEffect(() => {
     if (!localStorage.getItem('token')) return;
+
     let cancelled = false;
-    api
-      .get('/auth/me')
+
+    api.get('/auth/me')
       .then((res) => {
         if (cancelled || !res.data?.user) return;
         localStorage.setItem('userInfo', JSON.stringify(res.data.user));
         setUser(res.data.user);
       })
       .catch((err) => {
-        // 401: token hết hạn / bị thu hồi / tài khoản bị khóa -> xóa phiên
         if (!cancelled && err?.response?.status === 401) {
           localStorage.removeItem('token');
           localStorage.removeItem('userInfo');
           setUser(null);
         }
-        // lỗi mạng: giữ nguyên phiên lưu ở client
       });
-    return () => {
-      cancelled = true;
-    };
+
+    return () => { cancelled = true; };
   }, []);
 
   const navigateTo = (path: string) => {
@@ -73,17 +64,13 @@ export default function App() {
     setCurrentPath(path);
   };
 
-  // Đã đăng nhập thì không vào /login, /register; chưa đăng nhập thì không có /logout
   useEffect(() => {
-    if (user && (currentPath === '/login' || currentPath === '/register')) {
+    if (user && (currentPath === '/login' || currentPath === '/register'))
       navigateTo('/');
-    }
-    if (!user && currentPath === '/logout') {
+    if (!user && currentPath === '/logout')
       navigateTo('/login');
-    }
   }, [user, currentPath]);
 
-  // login.tsx đã lưu token + userInfo vào localStorage rồi mới gọi hàm này
   const handleLoginSuccess = () => {
     setUser(getStoredUser());
     navigateTo('/');
@@ -97,18 +84,36 @@ export default function App() {
     alert('Chức năng đặt lịch khám đang được phát triển.');
   };
 
-  const showHome = currentPath === '/' || currentPath === '/home' || currentPath === '/logout';
+  const handleDeveloping = (name: string) => {
+    alert(`Chức năng ${name} đang được phát triển.`);
+  };
 
   return (
     <div>
-      {/* Trang chủ; ở /logout thì popup xác nhận đè lên trang chủ */}
-      {showHome && (
+      {(currentPath === '/' || currentPath === '/home') && (
         <Home
           user={user}
           onNavigateToBooking={handleBooking}
           onNavigateToLogin={() => navigateTo('/login')}
           onNavigateToRegister={() => navigateTo('/register')}
           onNavigateToLogout={() => navigateTo('/logout')}
+          onNavigateToDoctors={() => navigateTo('/doctors')}
+          onNavigateToSchedule={() => handleDeveloping('lịch khám')}
+          onNavigateToContact={() => handleDeveloping('liên hệ')}
+        />
+      )}
+
+      {currentPath === '/doctors' && (
+        <DoctorsPage
+          user={user}
+          onNavigateHome={() => navigateTo('/')}
+          onNavigateToDoctors={() => navigateTo('/doctors')}
+          onNavigateToSchedule={() => handleDeveloping('lịch khám')}
+          onNavigateToContact={() => handleDeveloping('liên hệ')}
+          onNavigateToLogin={() => navigateTo('/login')}
+          onNavigateToRegister={() => navigateTo('/register')}
+          onNavigateToLogout={() => navigateTo('/logout')}
+          onNavigateToBooking={handleBooking}
         />
       )}
 
@@ -128,7 +133,6 @@ export default function App() {
           isOpen={true}
           onClose={() => navigateTo('/')}
           onConfirm={() => {
-            // logout.tsx đã gọi API + xóa token/userInfo, ở đây chỉ cập nhật state
             setUser(null);
             navigateTo('/login');
           }}
