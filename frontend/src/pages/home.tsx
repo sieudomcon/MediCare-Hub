@@ -1,7 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import SafeImage from '../components/safeimage';
 import Header from '../components/header';
 import Footer from '../components/footer';
+import api from '../services/api';
 
 export interface AuthUser {
   id: string | number;
@@ -39,14 +40,14 @@ function HeroBanner({ src }: { src?: string }) {
   );
 }
 
-const DOCTORS = [
-  { name: 'BS. Nguyễn Văn A', specialty: 'Chuyên khoa Nội', exp: '15 năm kinh nghiệm', emoji: '👨‍⚕️' },
-  { name: 'BS. Trần Thị B', specialty: 'Chuyên khoa Nhi', exp: '12 năm kinh nghiệm', emoji: '👩‍⚕️' },
-  { name: 'BS. Lê Văn C', specialty: 'Chuyên khoa Da liễu', exp: '10 năm kinh nghiệm', emoji: '👨‍⚕️' },
-  { name: 'BS. Phạm Thị D', specialty: 'Chuyên khoa Tim mạch', exp: '18 năm kinh nghiệm', emoji: '👩‍⚕️' },
-  { name: 'BS. Hoàng Văn E', specialty: 'Chuyên khoa Tai Mũi Họng', exp: '9 năm kinh nghiệm', emoji: '👨‍⚕️' },
-  { name: 'BS. Vũ Thị F', specialty: 'Chuyên khoa Sản', exp: '14 năm kinh nghiệm', emoji: '👩‍⚕️' },
-];
+// Khớp với các cột backend select trong doctor.controller.js
+interface FeaturedDoctor {
+  id: string | number;
+  full_name: string;
+  specialty: string;
+  avatar_url: string | null;
+  bio: string | null;
+}
 
 const STATS = [
   { value: '6+', label: 'Bác sĩ chuyên khoa' },
@@ -120,6 +121,26 @@ export default function Home({
   onNavigateToContact,
 }: HomeProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  const [doctors, setDoctors] = useState<FeaturedDoctor[]>([]);
+const [doctorsLoading, setDoctorsLoading] = useState(true);
+const [doctorsError, setDoctorsError] = useState('');
+
+useEffect(() => {
+  let cancelled = false;
+
+  api.get('/doctors/featured')
+    .then((res) => {
+      if (!cancelled) setDoctors(res.data?.doctors ?? []);
+    })
+    .catch(() => {
+      if (!cancelled) setDoctorsError('Không thể tải danh sách bác sĩ, vui lòng thử lại sau.');
+    })
+    .finally(() => {
+      if (!cancelled) setDoctorsLoading(false);
+    });
+
+  return () => { cancelled = true; };
+}, []);
   const bannerImage = getAsset('1');
   const logoImage = getAsset('2');
   const displayName = user ? user.username || user.email : '';
@@ -225,27 +246,40 @@ export default function Home({
         <h2 style={styles.title}>Bác sĩ tiêu biểu</h2>
         <p style={styles.titleSub}>Kéo sang hoặc bấm mũi tên để xem thêm bác sĩ</p>
 
-        <div style={styles.carousel}>
-          <button className="mh-arrow" aria-label="Trước" onClick={() => slideDoctors(-1)} style={{ ...styles.arrow, left: -18 }}>‹</button>
+        {doctorsLoading && <p style={styles.doctorNote}>Đang tải danh sách bác sĩ...</p>}
 
-          <div ref={trackRef} className="mh-track" style={styles.track}>
-            {DOCTORS.map((d, i) => {
-              const img = getAsset(`bc${i + 1}`);
+{!doctorsLoading && doctorsError && (
+  <p style={{ ...styles.doctorNote, color: '#dc2626' }}>{doctorsError}</p>
+)}
 
-              return (
-                <div key={d.name} className="mh-doctor mh-card" style={styles.doctorCard}>
-                  <SafeImage src={img} alt={d.name} style={styles.doctorImg} fallback={<div style={styles.doctorAvatar}>{d.emoji}</div>} />
-                  <h4 style={styles.doctorName}>{d.name}</h4>
-                  <p style={styles.doctorSpec}>{d.specialty}</p>
-                  <p style={styles.doctorExp}>{d.exp}</p>
-                  <button className="mh-btn" onClick={onNavigateToBooking} style={styles.btnSmallLine}>Đặt lịch với bác sĩ</button>
-                </div>
-              );
-            })}
-          </div>
+{!doctorsLoading && !doctorsError && doctors.length === 0 && (
+  <p style={styles.doctorNote}>Chưa có danh sách bác sĩ</p>
+)}
 
-          <button className="mh-arrow" aria-label="Sau" onClick={() => slideDoctors(1)} style={{ ...styles.arrow, right: -18 }}>›</button>
+{!doctorsLoading && !doctorsError && doctors.length > 0 && (
+  <div style={styles.carousel}>
+    <button className="mh-arrow" aria-label="Trước" onClick={() => slideDoctors(-1)} style={{ ...styles.arrow, left: -18 }}>‹</button>
+
+    <div ref={trackRef} className="mh-track" style={styles.track}>
+      {doctors.map((d) => (
+        <div key={d.id} className="mh-doctor mh-card" style={styles.doctorCard}>
+          <SafeImage
+            src={d.avatar_url ?? undefined}
+            alt={d.full_name}
+            style={styles.doctorImg}
+            fallback={<div style={styles.doctorAvatar}>👨‍⚕️</div>}
+          />
+          <h4 style={styles.doctorName}>{d.full_name}</h4>
+          <p style={styles.doctorSpec}>{d.specialty}</p>
+          {d.bio && <p style={styles.doctorBio}>{d.bio}</p>}
+          <button className="mh-btn" onClick={onNavigateToBooking} style={styles.btnSmallLine}>Đặt lịch với bác sĩ</button>
         </div>
+      ))}
+    </div>
+
+    <button className="mh-arrow" aria-label="Sau" onClick={() => slideDoctors(1)} style={{ ...styles.arrow, right: -18 }}>›</button>
+  </div>
+)}
       </section>
 
       <section id="schedule" className="mh-section" style={{ ...styles.section, backgroundColor: '#eaf3ff' }}>
@@ -342,6 +376,8 @@ const styles: Record<string, React.CSSProperties> = {
   doctorName: { fontSize: 17, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' },
   doctorSpec: { fontSize: 14, color: '#2563eb', fontWeight: 600, margin: '0 0 4px' },
   doctorExp: { fontSize: 13, color: '#64748b', margin: 0 },
+  doctorBio: { fontSize: 13, color: '#64748b', margin: 0, lineHeight: 1.5, display: '-webkit-box', WebkitLineClamp: 3, WebkitBoxOrient: 'vertical', overflow: 'hidden' },
+  doctorNote: { ...inner, fontSize: 15, color: '#64748b', padding: '24px 0' },
 
   tableWrap: { ...inner, backgroundColor: '#fff', border: '1px solid #dbeafe', borderRadius: 16, overflow: 'hidden', textAlign: 'left', boxShadow: '0 2px 8px rgba(15,23,42,.04)' },
   tRow: { display: 'grid', gridTemplateColumns: '1.2fr 1.5fr 1fr', gap: 12, alignItems: 'center', padding: '16px 24px', fontSize: 15, borderBottom: '1px solid #f1f5f9' },
