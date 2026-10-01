@@ -3,6 +3,7 @@ import SafeImage from '../components/safeimage';
 import Header from '../components/header';
 import Footer from '../components/footer';
 import api from '../services/api';
+import { useClinicInfo, displayInfo } from '../services/clinicservice'; // [SỬA] lấy thông tin phòng khám từ API
 
 export interface AuthUser {
   id: string | number;
@@ -121,6 +122,8 @@ export default function Home({
   onNavigateToContact,
 }: HomeProps) {
   const trackRef = useRef<HTMLDivElement>(null);
+  // [SỬA] thông tin giới thiệu phòng khám từ API /api/home
+  const { clinic, loading: clinicLoading } = useClinicInfo();
   const [doctors, setDoctors] = useState<FeaturedDoctor[]>([]);
 const [doctorsLoading, setDoctorsLoading] = useState(true);
 const [doctorsError, setDoctorsError] = useState('');
@@ -184,7 +187,9 @@ useEffect(() => {
           </h1>
 
           <p style={styles.heroSub}>
-            MediCare Hub kết nối bạn với đội ngũ y bác sĩ đầu ngành, giúp chủ động thời gian và quản lý hồ sơ sức khỏe toàn diện.
+            {/* [SỬA] mô tả lấy từ DB; không có thì báo đang cập nhật */}
+            {clinic?.description?.trim() ||
+              (clinicLoading ? '' : 'Thông tin giới thiệu phòng khám đang được cập nhật.')}
           </p>
 
           <div style={styles.heroBtns}>
@@ -396,4 +401,3 @@ const styles: Record<string, React.CSSProperties> = {
   footerCol: { display: 'flex', flexDirection: 'column', gap: 10, fontSize: 14 },
   copy: { ...inner, textAlign: 'center', fontSize: 13, color: '#64748b', paddingTop: 18 },
 };
-

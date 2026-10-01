@@ -1,5 +1,6 @@
 import React from 'react';
 import SafeImage from './safeimage';
+import { useClinicInfo, displayInfo } from '../services/clinicservice'; // [SỬA] lấy thông tin phòng khám từ API
 
 interface AuthUser {
   id: string | number;
@@ -37,6 +38,9 @@ export default function Header({
   onNavigateToLogout,
   styles,
 }: HeaderProps) {
+  // [SỬA] hotline lấy từ DB thay vì ghi cứng
+  const { clinic, loading: clinicLoading } = useClinicInfo();
+
   return (
     <header className="mh-header" style={styles.header}>
       <div
@@ -93,7 +97,7 @@ export default function Header({
           className="mh-hotline"
           style={styles.hotline}
         >
-          📞 1900 xxxx
+          📞 {displayInfo(clinic?.hotline, clinicLoading)} {/* [SỬA] */}
         </span>
 
         {user ? (
@@ -145,4 +149,3 @@ export default function Header({
     </header>
   );
 }
-
