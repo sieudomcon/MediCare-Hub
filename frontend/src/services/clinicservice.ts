@@ -13,6 +13,8 @@ export interface ClinicInfo {
   hotline: string | null;
   address: string | null;
   email: string | null;
+  working_hours?: string | null; 
+  workingHours?: string | null;
 }
 
 // Cache 1 lần gọi: Header, Footer, Home cùng dùng hook mà chỉ gọi API đúng 1 lần.
