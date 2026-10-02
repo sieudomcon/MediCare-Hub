@@ -1,6 +1,6 @@
 // config/supabase.config.js
-// Ket noi toi Supabase. Backend dung SERVICE ROLE KEY nen bo qua RLS -> bat
-// buoc phai bat RLS cho bang users de client khong doc truc tiep duoc bang nay.
+// Kết nối tới Supabase. Backend dùng SERVICE ROLE KEY nên bỏ qua RLS -> bắt
+// buộc phải bật RLS cho bảng users để client không đọc trực tiếp được bảng này.
 
 const { createClient } = require('@supabase/supabase-js');
 const { env } = require('./env.config');
