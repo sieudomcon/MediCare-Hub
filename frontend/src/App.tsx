@@ -30,6 +30,8 @@ const getInitialUser = (): AuthUser | null => {
 export default function App() {
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
   const [user, setUser] = useState<AuthUser | null>(getInitialUser);
+  // [SỬA] Khung xác nhận đăng xuất là hộp thoại bật/tắt đè lên trang đang đứng, không chuyển sang /logout nữa
+  const [showLogout, setShowLogout] = useState(false);
 
   useEffect(() => {
     const handlePopState = () => setCurrentPath(window.location.pathname);
@@ -67,8 +69,9 @@ export default function App() {
   useEffect(() => {
     if (user && (currentPath === '/login' || currentPath === '/register'))
       navigateTo('/');
-    if (!user && currentPath === '/logout')
-      navigateTo('/login');
+    // [SỬA] /logout không còn là trang riêng: ai vào thẳng đường dẫn này thì đưa về trang chủ
+    if (currentPath === '/logout')
+      navigateTo('/');
   }, [user, currentPath]);
 
   const handleLoginSuccess = () => {
@@ -84,6 +87,8 @@ export default function App() {
     alert('Chức năng đặt lịch khám đang được phát triển.');
   };
 
+  const openLogout = () => setShowLogout(true); // [SỬA] bấm "Đăng xuất" -> hiện khung đè lên trang hiện tại
+
   const handleDeveloping = (name: string) => {
     alert(`Chức năng ${name} đang được phát triển.`);
   };
@@ -96,7 +101,7 @@ export default function App() {
           onNavigateToBooking={handleBooking}
           onNavigateToLogin={() => navigateTo('/login')}
           onNavigateToRegister={() => navigateTo('/register')}
-          onNavigateToLogout={() => navigateTo('/logout')}
+          onNavigateToLogout={openLogout}
           onNavigateToDoctors={() => navigateTo('/doctors')}
           onNavigateToSchedule={() => handleDeveloping('lịch khám')}
           onNavigateToContact={() => handleDeveloping('liên hệ')}
@@ -112,7 +117,7 @@ export default function App() {
           onNavigateToContact={() => handleDeveloping('liên hệ')}
           onNavigateToLogin={() => navigateTo('/login')}
           onNavigateToRegister={() => navigateTo('/register')}
-          onNavigateToLogout={() => navigateTo('/logout')}
+          onNavigateToLogout={openLogout}
           onNavigateToBooking={handleBooking}
         />
       )}
@@ -128,16 +133,16 @@ export default function App() {
         <Register onSwitchToLogin={() => navigateTo('/login')} />
       )}
 
-      {currentPath === '/logout' && user && (
-        <Logout
-          isOpen={true}
-          onClose={() => navigateTo('/')}
-          onConfirm={() => {
-            setUser(null);
-            navigateTo('/login');
-          }}
-        />
-      )}
+      {/* [SỬA] Luôn nằm cuối, hiện đè lên bất kỳ trang nào đang mở (Logout tự trả về null khi isOpen = false) */}
+      <Logout
+        isOpen={showLogout && !!user}
+        onClose={() => setShowLogout(false)}
+        onConfirm={() => {
+          setShowLogout(false);
+          setUser(null);
+          navigateTo('/');
+        }}
+      />
     </div>
   );
 }
