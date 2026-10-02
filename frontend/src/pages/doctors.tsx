@@ -1,10 +1,11 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect } from 'react';
 import Header from '../components/header';
 import Footer from '../components/footer';
 import SafeImage from '../components/safeimage';
+import api from '../services/api';
 import type { AuthUser } from './home';
 
-// Import ảnh từ assets tương tự như trang Home
+// Chỉ còn dùng ảnh assets cho logo (ảnh bác sĩ lấy từ avatar_url của DB)
 const assetImages = import.meta.glob('../assets/*.{png,jpg,jpeg,webp}', {
   eager: true,
   import: 'default',
@@ -28,82 +29,33 @@ const ROLE_LABELS: Record<string, string> = {
 const getRoleLabel = (role?: string) =>
   role ? ROLE_LABELS[role.toUpperCase()] ?? role : '';
 
+// Khớp với các cột backend select trong doctorCatalog.controller.js
 export interface Doctor {
-  id: number;
-  name: string;
+  id: string | number;
+  full_name: string;
   specialty: string;
-  exp: string;
-  avatarAsset: string;
-  emoji: string;
-  availableDays: string[]; // ['Thứ 2', 'Thứ 3',...]
-  hospital: string;
+  avatar_url: string | null;
+  bio: string | null;
 }
 
-const DOCTORS_DATA: Doctor[] = [
-  {
-    id: 1,
-    name: 'BS. Nguyễn Văn A',
-    specialty: 'Nội tổng quát',
-    exp: '15 năm kinh nghiệm',
-    avatarAsset: 'bc1',
-    emoji: '👨‍⚕️',
-    availableDays: ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6'],
-    hospital: 'Bệnh viện Bạch Mai',
-  },
-  {
-    id: 2,
-    name: 'BS. Trần Thị B',
-    specialty: 'Nhi khoa',
-    exp: '12 năm kinh nghiệm',
-    avatarAsset: 'bc2',
-    emoji: '👩‍⚕️',
-    availableDays: ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6', 'Thứ 7'],
-    hospital: 'Bệnh viện Nhi Trung ương',
-  },
-  {
-    id: 3,
-    name: 'BS. Lê Văn C',
-    specialty: 'Da liễu',
-    exp: '10 năm kinh nghiệm',
-    avatarAsset: 'bc3',
-    emoji: '👨‍⚕️',
-    availableDays: ['Thứ 3', 'Thứ 5', 'Thứ 7'],
-    hospital: 'Bệnh viện Da liễu Trung ương',
-  },
-  {
-    id: 4,
-    name: 'BS. Phạm Thị D',
-    specialty: 'Tim mạch',
-    exp: '18 năm kinh nghiệm',
-    avatarAsset: 'bc4',
-    emoji: '👩‍⚕️',
-    availableDays: ['Thứ 2', 'Thứ 4', 'Thứ 6'],
-    hospital: 'Viện Tim mạch Việt Nam',
-  },
-  {
-    id: 5,
-    name: 'BS. Hoàng Văn E',
-    specialty: 'Tai Mũi Họng',
-    exp: '9 năm kinh nghiệm',
-    avatarAsset: 'bc5',
-    emoji: '👨‍⚕️',
-    availableDays: ['Thứ 2', 'Thứ 3', 'Thứ 4', 'Thứ 5', 'Thứ 6'],
-    hospital: 'Bệnh viện Tai Mũi Họng TW',
-  },
-  {
-    id: 6,
-    name: 'BS. Vũ Thị F',
-    specialty: 'Sản phụ khoa',
-    exp: '14 năm kinh nghiệm',
-    avatarAsset: 'bc6',
-    emoji: '👩‍⚕️',
-    availableDays: ['Thứ 3', 'Thứ 5', 'Thứ 7'],
-    hospital: 'Bệnh viện Phụ sản Trung ương',
-  },
-];
+// Khớp với { time, available } của API /doctors/:id/schedule
+interface Slot {
+  time: string;
+  available: boolean;
+}
+
+// Một ca làm việc sau khi gom các khung giờ lại
+interface Shift {
+  label: string; // Ca sáng / Ca chiều / Ca tối
+  start: string; // "08:00"
+  end: string; // "12:00"
+  availableCount: number; // số khung giờ còn trống
+}
+
+const ALL_SPECIALTIES = 'Tất cả chuyên khoa';
 
 const SPECIALTIES = [
-  'Tất cả chuyên khoa',
+  ALL_SPECIALTIES,
   'Nội tổng quát',
   'Nhi khoa',
   'Da liễu',
@@ -111,6 +63,69 @@ const SPECIALTIES = [
   'Tai Mũi Họng',
   'Sản phụ khoa',
 ];
+
+// ---------- Hàm hỗ trợ: gom khung giờ thành ca làm ----------
+// Backend chỉ trả danh sách khung giờ (VD 08:00, 08:30, ..., 11:30), không trả
+// tên ca. Nên FE chia theo buổi: trước 12:00 = sáng, 12:00-18:00 = chiều, còn lại = tối.
+const toMinutes = (t: string) => {
+  const [h, m] = t.split(':').map(Number);
+  return h * 60 + m;
+};
+
+const toTimeText = (total: number) =>
+  `${String(Math.floor(total / 60)).padStart(2, '0')}:${String(total % 60).padStart(2, '0')}`;
+
+const SHIFT_DEFS = [
+  { label: 'Ca sáng', from: 0, to: 12 * 60 },
+  { label: 'Ca chiều', from: 12 * 60, to: 18 * 60 },
+  { label: 'Ca tối', from: 18 * 60, to: 24 * 60 },
+];
+
+const DEFAULT_STEP = 30; // phút, trùng giá trị mặc định của backend
+
+// Độ dài 1 khung giờ = khoảng cách nhỏ nhất giữa 2 khung liền kề
+const detectStep = (minutes: number[]): number => {
+  let step = Infinity;
+  for (let i = 1; i < minutes.length; i++) {
+    const diff = minutes[i] - minutes[i - 1];
+    if (diff > 0 && diff < step) step = diff;
+  }
+  return Number.isFinite(step) ? step : DEFAULT_STEP;
+};
+
+const buildShifts = (slots: Slot[]): Shift[] => {
+  if (slots.length === 0) return [];
+
+  const sorted = [...slots].sort((a, b) => toMinutes(a.time) - toMinutes(b.time));
+  const globalStep = detectStep(sorted.map((s) => toMinutes(s.time)));
+
+  const shifts: Shift[] = [];
+  for (const def of SHIFT_DEFS) {
+    const inShift = sorted.filter((s) => {
+      const m = toMinutes(s.time);
+      return m >= def.from && m < def.to;
+    });
+    if (inShift.length === 0) continue;
+
+    const minutes = inShift.map((s) => toMinutes(s.time));
+    const step = minutes.length > 1 ? detectStep(minutes) : globalStep;
+
+    shifts.push({
+      label: def.label,
+      start: toTimeText(minutes[0]),
+      // Giờ kết thúc ca = khung giờ cuối + độ dài 1 khung
+      end: toTimeText(minutes[minutes.length - 1] + step),
+      availableCount: inShift.filter((s) => s.available).length,
+    });
+  }
+  return shifts;
+};
+
+// "2026-10-05" -> "05/10/2026"
+const formatDate = (iso: string) => {
+  const [y, m, d] = iso.split('-');
+  return `${d}/${m}/${y}`;
+};
 
 interface DoctorsPageProps {
   user?: AuthUser | null;
@@ -121,7 +136,7 @@ interface DoctorsPageProps {
   onNavigateToLogin: () => void;
   onNavigateToRegister: () => void;
   onNavigateToLogout: () => void;
-  onNavigateToBooking: (doctorId?: number) => void;
+  onNavigateToBooking: (doctorId?: string | number) => void;
 }
 
 export default function DoctorsPage({
@@ -141,61 +156,194 @@ export default function DoctorsPage({
 
   // State bộ lọc
   const [searchTerm, setSearchTerm] = useState('');
-  const [selectedSpecialty, setSelectedSpecialty] = useState('Tất cả chuyên khoa');
+  const [selectedSpecialty, setSelectedSpecialty] = useState(ALL_SPECIALTIES);
   const [selectedDate, setSelectedDate] = useState('');
 
-  // Chuyển đổi YYYY-MM-DD sang ngày trong tuần
-  const getDayNameFromDate = (dateString: string): string => {
-    if (!dateString) return '';
-    const date = new Date(dateString);
-    const day = date.getDay(); // 0 = Chủ nhật, 1 = Thứ 2, ...
-    const daysMap = [
-      'Chủ nhật',
-      'Thứ 2',
-      'Thứ 3',
-      'Thứ 4',
-      'Thứ 5',
-      'Thứ 6',
-      'Thứ 7',
-    ];
-    return daysMap[day];
-  };
+  // State dữ liệu từ backend
+  const [doctors, setDoctors] = useState<Doctor[]>([]);
+  const [featuredIds, setFeaturedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState('');
 
-  // Logic lọc danh sách bác sĩ
+  // Lịch làm việc theo ngày: { [doctorId]: Slot[] }
+  // Không chọn ngày -> backend tự lấy "hôm nay"
+  const [slotsByDoctor, setSlotsByDoctor] = useState<Record<string, Slot[]>>({});
+  const [slotsLoading, setSlotsLoading] = useState(false);
+
+  // ---------- 1. Lấy danh sách bác sĩ + danh sách bác sĩ nổi bật ----------
+  useEffect(() => {
+    let cancelled = false;
+    setLoading(true);
+    setError('');
+
+    const params =
+      selectedSpecialty !== ALL_SPECIALTIES ? { specialty: selectedSpecialty } : {};
+
+    // Danh sách đầy đủ (lọc chuyên khoa ở backend)
+    const doctorsReq = api.get('/doctors', { params });
+    // Danh sách nổi bật: lỗi thì coi như rỗng, không làm hỏng cả trang
+    const featuredReq = api
+      .get('/doctors/featured')
+      .then((res) => (res.data?.doctors ?? []) as Doctor[])
+      .catch(() => [] as Doctor[]);
+
+    Promise.all([doctorsReq, featuredReq])
+      .then(([doctorsRes, featured]) => {
+        if (cancelled) return;
+        setDoctors(doctorsRes.data?.doctors ?? []);
+        setFeaturedIds(new Set(featured.map((d) => String(d.id))));
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        setDoctors([]);
+        const status = err?.response?.status;
+        if (status === 404) {
+          setError(
+            'Không thể tải danh sách bác sĩ (404): backend chưa gắn route GET /api/doctors. ' +
+              "Kiểm tra routes/index.js đã có router.use('/doctors', doctorCatalogRoutes) chưa."
+          );
+        } else if (!status) {
+          setError('Không thể tải danh sách bác sĩ: không kết nối được tới máy chủ backend.');
+        } else {
+          setError(`Không thể tải danh sách bác sĩ (lỗi ${status}), vui lòng thử lại sau.`);
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedSpecialty]);
+
+  // ---------- 2. Lấy lịch làm việc của từng bác sĩ (ngày chọn, mặc định hôm nay) ----------
+  useEffect(() => {
+    if (doctors.length === 0) {
+      setSlotsByDoctor({});
+      return;
+    }
+
+    let cancelled = false;
+    setSlotsLoading(true);
+
+    // Không chọn ngày thì không gửi ?date=, backend tự dùng ngày hôm nay (giờ VN)
+    const params = selectedDate ? { date: selectedDate } : {};
+
+    // Gọi song song; 1 bác sĩ lỗi thì coi như không có lịch ngày đó
+    Promise.all(
+      doctors.map((doc) =>
+        api
+          .get(`/doctors/${doc.id}/schedule`, { params })
+          .then((res) => [String(doc.id), (res.data?.slots ?? []) as Slot[]] as const)
+          .catch(() => [String(doc.id), [] as Slot[]] as const)
+      )
+    ).then((entries) => {
+      if (cancelled) return;
+      setSlotsByDoctor(Object.fromEntries(entries));
+      setSlotsLoading(false);
+    });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [selectedDate, doctors]);
+
+  // ---------- 3. Lọc phía client, rồi tách thành 2 nhóm: nổi bật / khác ----------
   const filteredDoctors = useMemo(() => {
-    return DOCTORS_DATA.filter((doc) => {
-      // 1. Lọc theo tên hoặc nơi làm việc
+    const keyword = searchTerm.trim().toLowerCase();
+
+    return doctors.filter((doc) => {
       const matchesSearch =
-        doc.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doc.specialty.toLowerCase().includes(searchTerm.toLowerCase()) ||
-        doc.hospital.toLowerCase().includes(searchTerm.toLowerCase());
+        !keyword ||
+        doc.full_name.toLowerCase().includes(keyword) ||
+        doc.specialty.toLowerCase().includes(keyword) ||
+        (doc.bio ?? '').toLowerCase().includes(keyword);
 
-      // 2. Lọc theo chuyên khoa
-      const matchesSpecialty =
-        selectedSpecialty === 'Tất cả chuyên khoa' ||
-        doc.specialty === selectedSpecialty;
-
-      // 3. Lọc theo ngày khám chọn từ input type="date"
+      // Có chọn ngày -> chỉ giữ bác sĩ còn khung giờ trống ngày đó
       let matchesDate = true;
       if (selectedDate) {
-        const dayName = getDayNameFromDate(selectedDate);
-        matchesDate = doc.availableDays.includes(dayName);
+        const slots = slotsByDoctor[String(doc.id)] ?? [];
+        matchesDate = slots.some((s) => s.available);
       }
 
-      return matchesSearch && matchesSpecialty && matchesDate;
+      return matchesSearch && matchesDate;
     });
-  }, [searchTerm, selectedSpecialty, selectedDate]);
+  }, [doctors, searchTerm, selectedDate, slotsByDoctor]);
+
+  const featuredList = useMemo(
+    () => filteredDoctors.filter((d) => featuredIds.has(String(d.id))),
+    [filteredDoctors, featuredIds]
+  );
+  const otherList = useMemo(
+    () => filteredDoctors.filter((d) => !featuredIds.has(String(d.id))),
+    [filteredDoctors, featuredIds]
+  );
 
   const handleResetFilters = () => {
     setSearchTerm('');
-    setSelectedSpecialty('Tất cả chuyên khoa');
+    setSelectedSpecialty(ALL_SPECIALTIES);
     setSelectedDate('');
+  };
+
+  const isBusy = loading || slotsLoading;
+  const dateLabel = selectedDate ? formatDate(selectedDate) : 'hôm nay';
+
+  // ---------- Thẻ 1 bác sĩ ----------
+  const renderDoctorCard = (doc: Doctor) => {
+    const isFeatured = featuredIds.has(String(doc.id));
+    const shifts = buildShifts(slotsByDoctor[String(doc.id)] ?? []);
+
+    return (
+      <div key={doc.id} style={styles.doctorCard}>
+        <SafeImage
+          src={doc.avatar_url ?? undefined}
+          alt={doc.full_name}
+          style={styles.doctorImg}
+          fallback={<div style={styles.doctorAvatar}>👨‍⚕️</div>}
+        />
+
+        <div style={styles.doctorContent}>
+          <div style={styles.badgeRow}>
+            <span style={styles.badge}>{doc.specialty}</span>
+            {isFeatured && <span style={styles.featuredBadge}>⭐ Nổi bật</span>}
+          </div>
+
+          <h3 style={styles.docName}>{doc.full_name}</h3>
+          {doc.bio && <p style={styles.bio}>{doc.bio}</p>}
+
+          {/* Ca làm việc + thời gian mỗi ca */}
+          <div style={styles.scheduleInfo}>
+            <span style={styles.scheduleTitle}>Ca làm việc ({dateLabel}):</span>
+
+            {shifts.length > 0 ? (
+              <div style={styles.shiftList}>
+                {shifts.map((s) => (
+                  <div key={s.label} style={styles.shiftRow}>
+                    <span style={styles.shiftName}>{s.label}</span>
+                    <span style={styles.shiftTime}>
+                      {s.start} - {s.end}
+                    </span>
+                    <span style={styles.shiftCount}>còn {s.availableCount} khung giờ</span>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p style={styles.noShift}>Không có lịch làm việc ngày này</p>
+            )}
+          </div>
+
+          <button onClick={() => onNavigateToBooking(doc.id)} style={styles.btnBook}>
+            Đặt lịch hẹn
+          </button>
+        </div>
+      </div>
+    );
   };
 
   return (
     <div style={styles.container}>
       <Header
-        
         user={user}
         logoImage={logoImage}
         displayName={displayName}
@@ -222,19 +370,17 @@ export default function DoctorsPage({
       <section style={styles.filterSection}>
         <div style={styles.filterCard}>
           <div style={styles.filterGrid}>
-            {/* Ô tìm kiếm từ khóa */}
             <div style={styles.inputGroup}>
               <label style={styles.label}>🔍 Tìm kiếm bác sĩ</label>
               <input
                 type="text"
-                placeholder="Nhập tên bác sĩ, bệnh viện..."
+                placeholder="Nhập tên bác sĩ, chuyên khoa..."
                 value={searchTerm}
                 onChange={(e) => setSearchTerm(e.target.value)}
                 style={styles.input}
               />
             </div>
 
-            {/* Chọn Chuyên khoa */}
             <div style={styles.inputGroup}>
               <label style={styles.label}>🩺 Chuyên khoa</label>
               <select
@@ -250,7 +396,6 @@ export default function DoctorsPage({
               </select>
             </div>
 
-            {/* Chọn Ngày khám */}
             <div style={styles.inputGroup}>
               <label style={styles.label}>📅 Ngày khám</label>
               <input
@@ -262,7 +407,7 @@ export default function DoctorsPage({
             </div>
           </div>
 
-          {(searchTerm || selectedSpecialty !== 'Tất cả chuyên khoa' || selectedDate) && (
+          {(searchTerm || selectedSpecialty !== ALL_SPECIALTIES || selectedDate) && (
             <div style={styles.resetWrap}>
               <button onClick={handleResetFilters} style={styles.resetBtn}>
                 🔄 Xóa bộ lọc
@@ -272,55 +417,39 @@ export default function DoctorsPage({
         </div>
       </section>
 
-      {/* Doctor List Grid */}
+      {/* Doctor List */}
       <section style={styles.listSection}>
-        <div style={styles.resultSummary}>
-          Hiển thị <b>{filteredDoctors.length}</b> bác sĩ phù hợp
-        </div>
+        {isBusy && <div style={styles.resultSummary}>Đang tải danh sách bác sĩ...</div>}
 
-        {filteredDoctors.length > 0 ? (
-          <div style={styles.doctorGrid}>
-            {filteredDoctors.map((doc) => {
-              const img = getAsset(doc.avatarAsset);
+        {!isBusy && error && (
+          <div style={{ ...styles.resultSummary, color: '#dc2626' }}>{error}</div>
+        )}
 
-              return (
-                <div key={doc.id} style={styles.doctorCard}>
-                  <SafeImage
-                    src={img}
-                    alt={doc.name}
-                    style={styles.doctorImg}
-                    fallback={<div style={styles.doctorAvatar}>{doc.emoji}</div>}
-                  />
-
-                  <div style={styles.doctorContent}>
-                    <span style={styles.badge}>{doc.specialty}</span>
-                    <h3 style={styles.docName}>{doc.name}</h3>
-                    <p style={styles.hospital}>🏥 {doc.hospital}</p>
-                    <p style={styles.exp}>⭐ {doc.exp}</p>
-
-                    <div style={styles.scheduleInfo}>
-                      <span style={styles.scheduleTitle}>Lịch làm việc:</span>
-                      <div style={styles.daysList}>
-                        {doc.availableDays.map((day) => (
-                          <span key={day} style={styles.dayTag}>
-                            {day}
-                          </span>
-                        ))}
-                      </div>
-                    </div>
-
-                    <button
-                      onClick={() => onNavigateToBooking(doc.id)}
-                      style={styles.btnBook}
-                    >
-                      Đặt lịch hẹn
-                    </button>
-                  </div>
-                </div>
-              );
-            })}
+        {!isBusy && !error && (
+          <div style={styles.resultSummary}>
+            Hiển thị <b>{filteredDoctors.length}</b> bác sĩ phù hợp
           </div>
-        ) : (
+        )}
+
+        {/* Nhóm 1: bác sĩ nổi bật (hiện trước) */}
+        {!isBusy && !error && featuredList.length > 0 && (
+          <>
+            <h2 style={styles.sectionTitle}>⭐ Bác sĩ nổi bật</h2>
+            <div style={styles.doctorGrid}>{featuredList.map(renderDoctorCard)}</div>
+          </>
+        )}
+
+        {/* Nhóm 2: các bác sĩ còn lại (hiện sau) */}
+        {!isBusy && !error && otherList.length > 0 && (
+          <>
+            {featuredList.length > 0 && (
+              <h2 style={{ ...styles.sectionTitle, marginTop: 40 }}>Các bác sĩ khác</h2>
+            )}
+            <div style={styles.doctorGrid}>{otherList.map(renderDoctorCard)}</div>
+          </>
+        )}
+
+        {!isBusy && !error && filteredDoctors.length === 0 && (
           <div style={styles.emptyState}>
             <div style={{ fontSize: 48, marginBottom: 12 }}>🔍</div>
             <h3>Không tìm thấy bác sĩ phù hợp</h3>
@@ -464,6 +593,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   listSection: { ...inner, padding: '40px 24px 72px' },
   resultSummary: { fontSize: 15, color: '#64748b', marginBottom: 20 },
+  sectionTitle: { fontSize: 22, fontWeight: 800, color: '#0f172a', margin: '0 0 16px' },
   doctorGrid: {
     display: 'grid',
     gridTemplateColumns: 'repeat(auto-fill, minmax(340px, 1fr))',
@@ -499,19 +629,34 @@ const styles: Record<string, React.CSSProperties> = {
     flexShrink: 0,
   },
   doctorContent: { flex: 1, display: 'flex', flexDirection: 'column' },
+  badgeRow: { display: 'flex', flexWrap: 'wrap', gap: 6, marginBottom: 6 },
   badge: {
-    alignSelf: 'flex-start',
     backgroundColor: '#eff6ff',
     color: '#2563eb',
     fontSize: 12,
     fontWeight: 700,
     padding: '2px 8px',
     borderRadius: 6,
-    marginBottom: 6,
+  },
+  featuredBadge: {
+    backgroundColor: '#fef3c7',
+    color: '#b45309',
+    fontSize: 12,
+    fontWeight: 700,
+    padding: '2px 8px',
+    borderRadius: 6,
   },
   docName: { fontSize: 18, fontWeight: 700, color: '#0f172a', margin: '0 0 4px' },
-  hospital: { fontSize: 13, color: '#475569', margin: '0 0 4px' },
-  exp: { fontSize: 13, color: '#16a34a', fontWeight: 600, margin: '0 0 12px' },
+  bio: {
+    fontSize: 13,
+    color: '#64748b',
+    margin: '0 0 12px',
+    lineHeight: 1.5,
+    display: '-webkit-box',
+    WebkitLineClamp: 3,
+    WebkitBoxOrient: 'vertical',
+    overflow: 'hidden',
+  },
 
   scheduleInfo: {
     borderTop: '1px solid #f1f5f9',
@@ -519,14 +664,25 @@ const styles: Record<string, React.CSSProperties> = {
     marginBottom: 16,
   },
   scheduleTitle: { fontSize: 12, color: '#94a3b8', fontWeight: 600 },
-  daysList: { display: 'flex', flexWrap: 'wrap', gap: 4, marginTop: 4 },
-  dayTag: {
-    fontSize: 11,
-    backgroundColor: '#f1f5f9',
-    color: '#334155',
-    padding: '2px 6px',
-    borderRadius: 4,
+  shiftList: { display: 'flex', flexDirection: 'column', gap: 6, marginTop: 8 },
+  shiftRow: {
+    display: 'flex',
+    alignItems: 'center',
+    flexWrap: 'wrap',
+    gap: 8,
+    fontSize: 13,
   },
+  shiftName: { fontWeight: 700, color: '#0f172a', minWidth: 62 },
+  shiftTime: {
+    padding: '2px 10px',
+    fontSize: 12,
+    fontWeight: 600,
+    color: '#15803d',
+    backgroundColor: '#f0fdf4',
+    borderRadius: 999,
+  },
+  shiftCount: { fontSize: 12, color: '#64748b' },
+  noShift: { fontSize: 13, color: '#94a3b8', margin: '8px 0 0' },
 
   btnBook: {
     padding: '10px 16px',
