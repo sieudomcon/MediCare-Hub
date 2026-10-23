@@ -35,6 +35,17 @@ const getTodayInVietnam = () => {
   return vnTime.toISOString().slice(0, 10); // "YYYY-MM-DD"
 };
 
+// Gio hien tai theo gio Viet Nam (UTC+7), dang "HH:mm". Dung chung voi
+// getTodayInVietnam() de chan dat lich cho gio da qua trong CHINH NGAY hom
+// nay (vd bay gio la 10:00 thi khong duoc dat slot 08:00 cua hom nay nua,
+// dat cho ngay mai tro di thi khong can kiem tra gio).
+const getCurrentTimeInVietnam = () => {
+  const now = new Date();
+  const vnOffsetMs = 7 * 60 * 60 * 1000;
+  const vnTime = new Date(now.getTime() + vnOffsetMs);
+  return vnTime.toISOString().slice(11, 16); // "HH:mm"
+};
+
 // Thu trong tuan cua 1 ngay (0 = Chu Nhat, 1 = Thu Hai, ..., 6 = Thu Bay).
 // Dung mang UTC de ket qua on dinh, khong phu thuoc mui gio server dang chay.
 const getDayOfWeek = (dateStr) => new Date(`${dateStr}T00:00:00Z`).getUTCDay();
@@ -89,6 +100,7 @@ module.exports = {
   UUID_REGEX,
   isValidCalendarDate,
   getTodayInVietnam,
+  getCurrentTimeInVietnam,
   getDayOfWeek,
   timeToMinutes,
   minutesToTime,
