@@ -10,6 +10,7 @@ const {
   TIME_REGEX,
   isValidCalendarDate,
   getTodayInVietnam,
+  getCurrentTimeInVietnam,
   getDayOfWeek,
   findSlotInSchedule
 } = require('../utils/schedule');
@@ -89,11 +90,18 @@ const createAppointment = async (req, res) => {
       return fail(res, 400, 'Ngày giờ không hợp lệ');
     }
 
-    // Bước 3 (SRS): không được đặt lịch trong quá khứ. Hợp đồng chỉ yêu cầu
-    // chặn theo NGÀY (không yêu cầu so cả giờ trong ngày hôm nay).
+    // Bước 3 (SRS): không được đặt lịch trong quá khứ. Chặn theo ngày; nếu
+    // đúng ngày hôm nay thì chặn thêm theo giờ (BUG-005, tester phát hiện:
+    // trước đây chỉ so ngày nên đặt giờ đã qua trong hôm nay vẫn lọt).
     const todayVN = getTodayInVietnam();
     if (date < todayVN) {
       return fail(res, 400, 'Không thể đặt lịch trong quá khứ');
+    }
+    if (date === todayVN) {
+      const currentTimeVN = getCurrentTimeInVietnam();
+      if (time <= currentTimeVN) {
+        return fail(res, 400, 'Không thể đặt lịch trong quá khứ');
+      }
     }
 
     // Bước 4: bác sĩ phải tồn tại và đang hoạt động
